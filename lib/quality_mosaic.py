@@ -83,3 +83,56 @@ def wrap_addFScore(feature_collection, DOI):
         x = ee.Image(deltaDays.add(1).log10()).add(1).multiply(ee.Image(K).pow(prob.add(ee.Number(OFFSET)))).multiply(ee.Image(MULT))
         return image.addBands(x.multiply(ee.Number(-1)).rename('FScore'))
     return feature_collection.map(lambda feat: do_buffer(feat))
+
+
+## S1 Image
+def get_s1_median(roi, DOI, start_date_str, end_date_str, median_days=0):
+    s1_col = ee.ImageCollection('COPERNICUS/S1_GRD')\
+        .filterBounds(roi)\
+        .filterDate(start_date_str, end_date_str)\
+        .filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VV'))\
+        .filter(ee.Filter.eq('instrumentMode', 'IW'))\
+        .filter(ee.Filter.eq('orbitProperties_pass', 'ASCENDING'))\
+        .filter(ee.Filter.eq('resolution_meters', 10))
+
+    # s1_col = s1_col.map(lambda image: image.set(
+    #     'time_diff',  ee.Number(image.get('system:time_start')).subtract(DOI.millis()).abs()))
+    s1_col = s1_col.map(lambda img: img.set('time_diff', img.date().difference(DOI, 'day').abs()))
+
+    s1_col = s1_col.sort('time_diff')
+    if median_days > 0:
+        s1_col = s1_col.limit(median_days)
+    s1 = s1_col.median()
+
+    return s1
+
+def get_DOI(date:str, max_search_window_months:int):
+    DOI = ee.Date(date)
+    start_date, end_date = DOI.advance(-max_search_window_months, 'month'), DOI.advance(max_search_window_months, 'month')
+    start_date_str, end_date_str = start_date.format('YYYY-MM-dd').getInfo(), end_date.format('YYYY-MM-dd').getInfo()
+    print("Search window from {:} to {:}".format(start_date_str, end_date_str))
+    return DOI, start_date_str, end_date_str
+
+def get_s1_s2(roi, date, max_search_window_months:int=6, s1_median_days=0):
+    """
+    roi: ee.Geometry type polygon or point
+    date: string 'YYYY-MM-DD', e.g. '2019-01-01'
+    max_search_window_months: int, max search window in months
+    s1_median_days: int, number of days to median filtered S1 images
+
+    return:
+    s1: ee.Image type
+    """
+    DOI, start_date_str, end_date_str = get_DOI(date, max_search_window_months)
+
+    s2_cld_col = get_s2_sr_cld_col(roi, start_date_str, end_date_str)
+    witFScore = wrap_addFScore(s2_cld_col, DOI)
+    qm_s2 = witFScore.qualityMosaic('FScore')
+
+    s1 = get_s1_median(roi, DOI, start_date_str, end_date_str, s1_median_days)
+
+    #combine s1 and s2
+    s1_s2 = qm_s2.addBands(s1)
+
+
+    return s1_s2
