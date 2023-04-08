@@ -136,3 +136,42 @@ def get_s1_s2(roi, date, max_search_window_months:int=6, s1_median_days=0):
 
 
     return s1_s2
+
+# Add indices for S2 images
+def add_mTGSI(image):
+    mTGSI = image.expression('(R - B + SWIR2 - NIR) / (R + G + B + SWIR2 + NIR)', 
+                             { 'R': image.select('B4'),
+                              'G': image.select('B3'),
+                              'B': image.select('B2'),
+                              'NIR': image.select('B8'),
+                              'SWIR2': image.select('B12')
+                              # 'SWIR1': image.select('B11')
+                            }).rename('mTGSI')
+    return image.addBands(mTGSI)
+
+def addEVI(image):
+    EVI = image.expression('2.5 * ((NIR - RED) / (NIR + 6 * RED - 7.5 * BLUE + 1))', {
+    'NIR' : image.select('B8'),
+    'RED' : image.select('B4'),
+    'BLUE': image.select('B2')}).rename('EVI')
+    
+    return image.addBands(EVI)
+
+def addBSI(image):
+    BSI = image.expression('((RED + SWIR1) - (NIR + BLUE)) / ((RED + SWIR1) + (NIR + BLUE))', {
+    'NIR' : image.select('B8'),
+    'RED' : image.select('B4'),
+    'SWIR1': image.select('B11'),
+    'BLUE': image.select('B2')
+    }).rename('BSI')
+    
+    return image.addBands(BSI)
+
+def addNDWI(image):
+    NDWI = image.expression('(GREEN - NIR) / (GREEN + NIR)', {
+    'NIR' : image.select('B8'),
+    'GREEN' : image.select('B3')
+    }).rename('NDWI')
+    
+    return image.addBands(NDWI)
+
