@@ -1,10 +1,20 @@
 import ee
+import geemap
 
 K = 1000
 OFFSET = -0.5
 MULT = 100
 CLOUD_FILTER = 10
 CLD_PRB_THRESH = 20
+
+USEFUL_BANDS = ["B2","B3","B4","B8","B8A","B11","B12","VV","VH","mTGSI","BSI","NDWI"]
+
+#Viz params
+visParamsRGB = {"min": 0, "max": 4000, "bands": ["B4", "B3", "B2"]}
+visParamsVV  = {"min": -30, "max": 0, "bands": ["VV"]}
+visParamsFScore  = {"min": -50, "max": 0, "bands": ["FScore"]}
+green_blue_yellow_orange = ['#008080','#0039e6','#FFFF31','#f85d31']
+visParamsMTGSI  = {'min':-0.5, 'max':0.25, 'palette':green_blue_yellow_orange, 'bands':['mTGSI']}
 
 
 def get_s2_sr_cld_col(aoi, start_date, end_date):
@@ -134,6 +144,11 @@ def get_s1_s2(roi, date, max_search_window_months:int=6, s1_median_days=0):
     #combine s1 and s2
     s1_s2 = qm_s2.addBands(s1)
 
+    #Add VI Bands
+    s1_s2 = addNDWI(addBSI(add_mTGSI(s1_s2)))
+
+    #subset only useful bands
+    s1_s2 = s1_s2.select(USEFUL_BANDS)
 
     return s1_s2
 
@@ -175,3 +190,25 @@ def addNDWI(image):
     
     return image.addBands(NDWI)
 
+def setup_map(Map, s1_s2, lat, lon, sample):
+    
+    left_layer = geemap.ee_tile_layer(s1_s2, visParamsRGB, 'S2')
+    right_layer = geemap.ee_tile_layer(s1_s2, visParamsMTGSI , 'mTGSI')
+
+    # Map.addLayer(s1_s2, visParamsMTGSI , 'mTGSI')
+    # Map.addLayer(s1_s2, visParamsVV, 's1', False)
+    # Map.addLayer(s1_s2, visParamsRGB, 'qm_s2')
+    Map = geemap.Map()
+    Map.centerObject(sample, 18)
+    Map.add_basemap('SATELLITE')
+    # Map.addLayer(s1_s2, visParamsVV, 's1', False)
+    Map.split_map(left_layer, right_layer)
+
+    #Add the buffer around sampled point
+    Map.addLayer(sample,
+                {'color':'green', 'opacity':0.5},
+                name='buffer')
+
+    Map.add_marker([lat, lon],tooltip='sample', name='sample', draggable=False)
+    return Map
+    
