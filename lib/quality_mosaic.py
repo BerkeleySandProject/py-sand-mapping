@@ -1,5 +1,7 @@
 import ee
 import geemap
+import numpy as np
+from IPython.display import clear_output
 
 K = 1000
 OFFSET = -0.5
@@ -123,12 +125,15 @@ def get_DOI(date:str, max_search_window_months:int):
     print("Search window from {:} to {:}".format(start_date_str, end_date_str))
     return DOI, start_date_str, end_date_str
 
-def get_s1_s2(roi, date, max_search_window_months:int=6, s1_median_days=0):
+def get_s1_s2(roi, date, max_search_window_months:int=6, median_days:int=6,mosaic_method='qm'):
     """
     roi: ee.Geometry type polygon or point
     date: string 'YYYY-MM-DD', e.g. '2019-01-01'
     max_search_window_months: int, max search window in months
-    s1_median_days: int, number of days to median filtered S1 images
+    median_days: int, number of days to median filtered S1/S2 images
+    mosaic_method: string, either 'qm' or 'median'
+        if 'qm', quality mosaic will be used to mosaic S2 images, and max_search_window_months is used
+        if 'median', median will be used to mosaic S2 images, and median_days is used
 
     return:
     s1: ee.Image type
@@ -136,10 +141,16 @@ def get_s1_s2(roi, date, max_search_window_months:int=6, s1_median_days=0):
     DOI, start_date_str, end_date_str = get_DOI(date, max_search_window_months)
 
     s2_cld_col = get_s2_sr_cld_col(roi, start_date_str, end_date_str)
-    witFScore = wrap_addFScore(s2_cld_col, DOI)
-    qm_s2 = witFScore.qualityMosaic('FScore')
 
-    s1 = get_s1_median(roi, DOI, start_date_str, end_date_str, s1_median_days)
+    if (mosaic_method == 'qm'):
+        witFScore = wrap_addFScore(s2_cld_col, DOI)
+        qm_s2 = witFScore.qualityMosaic('FScore')
+    elif (mosaic_method == 'median'):
+        qm_s2 = s2_cld_col.median()
+    else:
+        raise ValueError('mosaic_method must be either qm or median')
+    
+    s1 = get_s1_median(roi, DOI, start_date_str, end_date_str, median_days)
 
     #combine s1 and s2
     s1_s2 = qm_s2.addBands(s1)
@@ -190,25 +201,130 @@ def addNDWI(image):
     
     return image.addBands(NDWI)
 
-def setup_map(Map, s1_s2, lat, lon, sample):
+
+def setup_marker_map(Map, s1_s2, lat, lon, sample, id):
+    Map.centerObject(sample, 18)
+    Map.add_basemap('SATELLITE')
+    Map.addLayer(s1_s2, visParamsVV, 'S1', False)
+    Map.addLayer(s1_s2, visParamsMTGSI , 'mTGSI')
+    Map.addLayer(s1_s2, visParamsRGB, 'S2')
+    Map.addLayer(sample,
+                {'color':'green', 'opacity':0.5},
+                name='buffer')
+    name_marker = 'sample_' + str(id)
+    Map.add_marker([lat, lon],tooltip=name_marker, name=name_marker, draggable=False)
+
+
+# Map viz
+def setup_split_map(s1_s2, lat, lon, sample):
+    
+    Map = geemap.Map()
+    Map.centerObject(sample, 18) #VERY IMPORTANT: Split map will not render at zoom > 18
+    Map.add_basemap('SATELLITE')
+    Map.addLayer(s1_s2, visParamsVV, 's1', False)
     
     left_layer = geemap.ee_tile_layer(s1_s2, visParamsRGB, 'S2')
     right_layer = geemap.ee_tile_layer(s1_s2, visParamsMTGSI , 'mTGSI')
-
-    # Map.addLayer(s1_s2, visParamsMTGSI , 'mTGSI')
-    # Map.addLayer(s1_s2, visParamsVV, 's1', False)
-    # Map.addLayer(s1_s2, visParamsRGB, 'qm_s2')
-    Map = geemap.Map()
-    Map.centerObject(sample, 18)
-    Map.add_basemap('SATELLITE')
-    # Map.addLayer(s1_s2, visParamsVV, 's1', False)
     Map.split_map(left_layer, right_layer)
-
+    
+    
     #Add the buffer around sampled point
     Map.addLayer(sample,
                 {'color':'green', 'opacity':0.5},
                 name='buffer')
 
     Map.add_marker([lat, lon],tooltip='sample', name='sample', draggable=False)
+    Map.addLayerControl()
     return Map
+
+
+def refresh_maps_one_at_a_time(df, Map, index, sampling_buffer_m=5, max_search_window_months:int=6, median_days:int=6, display_smap=True,mosaic_method='qm'):
+    """
+    Auto incrementing function
+    """
+    keep = False
+    clear_output()
+
+    obs = df.loc[index]
     
+    lat, lon = obs['Latitude'], obs['Longitude']
+
+    print("Index: ", index, " ID: ", obs['ID'], "Class: ", obs['Class'], " Country: ", obs['Country'], " Site: ", obs['Site'])
+    Map.remove_drawn_features() #remove the previous markers, if any
+    new_sample = None
+
+    point = ee.Geometry.Point([lon, lat])
+    sample = point.buffer(sampling_buffer_m).bounds()
+    roi = point.buffer(100).bounds()
+
+    date = obs['Date']
+    
+    s1_s2 = get_s1_s2(roi=roi, date=date, max_search_window_months=max_search_window_months,median_days=median_days, mosaic_method=mosaic_method)
+    setup_marker_map(Map, s1_s2, lat, lon, sample, obs['ID'])
+
+    if display_smap:
+        SMap = setup_split_map(s1_s2, lat, lon, sample)
+        display(SMap)
+
+    return s1_s2, sample
+
+def get_values_one_at_a_time(df, s1_s2, sample, Map, index, sampling_buffer_m=5):
+    # global INDEX, sampling_buffer_m
+    obs = df.loc[index]
+
+    new_sample = None
+    if (Map.draw_last_feature is not None):
+        Map.draw_last_feature.geometry().getInfo()['coordinates']
+        new_sample = Map.draw_last_feature.buffer(sampling_buffer_m).bounds()
+        Map.addLayer(new_sample,
+                {'color':'green', 'opacity':0.5},
+                name='new_buffer')
+
+
+    inp = input("[{:} {:}] Enter 'y' to keep this sample: ".format(obs['ID'],  obs['Class']))
+    keep = inp == 'y'  
+    clear_output()
+
+    
+    if (keep):
+        if new_sample is not None:
+            sample = new_sample.geometry()
+            print("New marker accepted")
+            df['location_tweaked'].loc[index] = True
+        else:
+            print("Original marker accepted")
+
+        DN_sample = s1_s2.reduceRegion(**{
+                    'reducer': ee.Reducer.mean(),
+                    'geometry': sample,
+                    'scale': 10,
+                    'maxPixels': 1e5
+                    }).getInfo()
+
+
+        print("Kept Observation")
+        for b, band in enumerate(USEFUL_BANDS):
+            # print(b, band)
+            df[band].loc[index] = DN_sample[band]
+
+        df['keep'].loc[index] = True
+    else:
+        print("Discarded Observation")
+
+    index += 1  
+    return df, index
+
+
+def setup_output_bands(output):
+    cols = output.columns.values.tolist()
+
+    for band in USEFUL_BANDS:
+        if band not in cols:
+            output[band] = np.NaN
+
+    output['keep'] = False
+    output['keep'] = False
+    output['location_tweaked'] = False
+    return output
+
+
