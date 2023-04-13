@@ -264,6 +264,7 @@ def setup_output_bands(output, obia=True):
     if 'keep' not in cols:
         output['keep'] = False
         output['location_tweaked'] = False
+        output['class_code'] = 99
     return output
 
 
@@ -415,6 +416,7 @@ def get_obia_values(df, s1_s2, sample, Map, index, sampling_buffer_m=5,
             df[band].loc[index] = DN_obia_sample[band]
 
         df['keep'].loc[index] = True
+        df['class_code'].loc[index] = class_int
 
         print("Kept Observation")
 
