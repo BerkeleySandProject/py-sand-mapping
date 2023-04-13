@@ -10,6 +10,7 @@ CLOUD_FILTER = 10
 CLD_PRB_THRESH = 20
 
 USEFUL_BANDS = ["B2","B3","B4","B8","B8A","B11","B12","VV","VH","mTGSI","BSI","NDWI"]
+OBIA_BANDS = ["B2_mean","B3_mean","B4_mean","B8_mean","B8A_mean","B11_mean","B12_mean","VV_mean","VH_mean","mTGSI_mean","BSI_mean","NDWI_mean"]
 
 #Viz params
 visParamsRGB = {"min": 0, "max": 4000, "bands": ["B4", "B3", "B2"]}
@@ -17,6 +18,10 @@ visParamsVV  = {"min": -30, "max": 0, "bands": ["VV"]}
 visParamsFScore  = {"min": -50, "max": 0, "bands": ["FScore"]}
 green_blue_yellow_orange = ['#008080','#0039e6','#FFFF31','#f85d31']
 visParamsMTGSI  = {'min':-0.5, 'max':0.25, 'palette':green_blue_yellow_orange, 'bands':['mTGSI']}
+vizParamsSNIC =  {'bands': ['B4_mean','B3_mean','B11_mean'], 'min': 0, 'max': 0.3}
+
+#create a dictonary to store mapping between string class names and numeric class values
+class_dict = {'fine': 0, 'sand': 1, 'gravel': 2, 'whitewater':3 , 'water': 4, 'bare': 5, 'greenveg': 6, 'other': 7}
 
 
 def get_s2_sr_cld_col(aoi, start_date, end_date):
@@ -98,7 +103,7 @@ def wrap_addFScore(feature_collection, DOI):
 
 
 ## S1 Image
-def get_s1_median(roi, DOI, start_date_str, end_date_str, median_days=0):
+def get_s1_median(roi, DOI, start_date_str, end_date_str, median_samples=0):
     s1_col = ee.ImageCollection('COPERNICUS/S1_GRD')\
         .filterBounds(roi)\
         .filterDate(start_date_str, end_date_str)\
@@ -112,8 +117,8 @@ def get_s1_median(roi, DOI, start_date_str, end_date_str, median_days=0):
     s1_col = s1_col.map(lambda img: img.set('time_diff', img.date().difference(DOI, 'day').abs()))
 
     s1_col = s1_col.sort('time_diff')
-    if median_days > 0:
-        s1_col = s1_col.limit(median_days)
+    if median_samples > 0:
+        s1_col = s1_col.limit(median_samples)
     s1 = s1_col.median()
 
     return s1
@@ -125,15 +130,15 @@ def get_DOI(date:str, max_search_window_months:int):
     print("Search window from {:} to {:}".format(start_date_str, end_date_str))
     return DOI, start_date_str, end_date_str
 
-def get_s1_s2(roi, date, max_search_window_months:int=6, median_days:int=6,mosaic_method='qm'):
+def get_s1_s2(roi, date, max_search_window_months:int=6, median_samples:int=6,mosaic_method='qm', clip=True):
     """
     roi: ee.Geometry type polygon or point
     date: string 'YYYY-MM-DD', e.g. '2019-01-01'
     max_search_window_months: int, max search window in months
-    median_days: int, number of days to median filtered S1/S2 images
+    median_samples: int, number of days to median filtered S1/S2 images
     mosaic_method: string, either 'qm' or 'median'
         if 'qm', quality mosaic will be used to mosaic S2 images, and max_search_window_months is used
-        if 'median', median will be used to mosaic S2 images, and median_days is used
+        if 'median', median will be used to mosaic S2 images, and median_samples is used
 
     return:
     s1: ee.Image type
@@ -146,11 +151,14 @@ def get_s1_s2(roi, date, max_search_window_months:int=6, median_days:int=6,mosai
         witFScore = wrap_addFScore(s2_cld_col, DOI)
         qm_s2 = witFScore.qualityMosaic('FScore')
     elif (mosaic_method == 'median'):
+        s2_cld_col = s2_cld_col.sort('time_diff')
+        if median_samples > 0:
+            s2_cld_col = s2_cld_col.limit(median_samples)
         qm_s2 = s2_cld_col.median()
     else:
         raise ValueError('mosaic_method must be either qm or median')
     
-    s1 = get_s1_median(roi, DOI, start_date_str, end_date_str, median_days)
+    s1 = get_s1_median(roi, DOI, start_date_str, end_date_str, median_samples)
 
     #combine s1 and s2
     s1_s2 = qm_s2.addBands(s1)
@@ -160,6 +168,9 @@ def get_s1_s2(roi, date, max_search_window_months:int=6, median_days:int=6,mosai
 
     #subset only useful bands
     s1_s2 = s1_s2.select(USEFUL_BANDS)
+
+    if clip:
+        s1_s2 = s1_s2.clip(roi)
 
     return s1_s2
 
@@ -237,13 +248,34 @@ def setup_split_map(s1_s2, lat, lon, sample):
     Map.addLayerControl()
     return Map
 
+def setup_output_bands(output, obia=True):
+    cols = output.columns.values.tolist()
 
-def refresh_maps_one_at_a_time(df, Map, index, sampling_buffer_m=5, max_search_window_months:int=6, median_days:int=6, display_smap=True,mosaic_method='qm'):
+    if obia:
+        BANDS = OBIA_BANDS
+    else:
+        BANDS = USEFUL_BANDS
+
+    for band in BANDS:
+        if band not in cols:
+            output[band] = np.NaN
+
+    #Check if the output alredy has the keep and location_tweeked columns
+    if 'keep' not in cols:
+        output['keep'] = False
+        output['location_tweaked'] = False
+    return output
+
+
+
+def get_s1s2_data(df, Map, index, sampling_buffer_m=5, max_search_window_months:int=6, median_samples:int=6, display_smap=True, mosaic_method='qm', roi_buffer_m=200, obia=True):
     """
     Auto incrementing function
     """
     keep = False
     clear_output()
+
+    df = setup_output_bands(df, obia=obia)
 
     obs = df.loc[index]
     
@@ -255,11 +287,11 @@ def refresh_maps_one_at_a_time(df, Map, index, sampling_buffer_m=5, max_search_w
 
     point = ee.Geometry.Point([lon, lat])
     sample = point.buffer(sampling_buffer_m).bounds()
-    roi = point.buffer(100).bounds()
+    roi = point.buffer(roi_buffer_m).bounds()
 
     date = obs['Date']
     
-    s1_s2 = get_s1_s2(roi=roi, date=date, max_search_window_months=max_search_window_months,median_days=median_days, mosaic_method=mosaic_method)
+    s1_s2 = get_s1_s2(roi=roi, date=date, max_search_window_months=max_search_window_months,median_samples=median_samples, mosaic_method=mosaic_method)
     setup_marker_map(Map, s1_s2, lat, lon, sample, obs['ID'])
 
     if display_smap:
@@ -268,7 +300,8 @@ def refresh_maps_one_at_a_time(df, Map, index, sampling_buffer_m=5, max_search_w
 
     return s1_s2, sample
 
-def get_values_one_at_a_time(df, s1_s2, sample, Map, index, sampling_buffer_m=5):
+
+def get_pixel_values(df, s1_s2, sample, Map, index, sampling_buffer_m=5):
     # global INDEX, sampling_buffer_m
     obs = df.loc[index]
 
@@ -315,16 +348,90 @@ def get_values_one_at_a_time(df, s1_s2, sample, Map, index, sampling_buffer_m=5)
     return df, index
 
 
-def setup_output_bands(output):
-    cols = output.columns.values.tolist()
+def get_obia_values(df, s1_s2, sample, Map, index, sampling_buffer_m=5, 
+                    size_seg_px=10, compactness=0.,display_clusters=False, sample_class=None):
+    # global INDEX, sampling_buffer_m
+    obs = df.loc[index]
 
-    for band in USEFUL_BANDS:
-        if band not in cols:
-            output[band] = np.NaN
+    if sample_class is None: # user has not overridden class variable
+        sample_class = obs['Class']
 
-    output['keep'] = False
-    output['keep'] = False
-    output['location_tweaked'] = False
-    return output
+    new_sample = None
+    if (Map.draw_last_feature is not None):
+        
+        new_sample = Map.draw_last_feature.buffer(sampling_buffer_m).bounds()
+        Map.addLayer(new_sample,
+                {'color':'green', 'opacity':0.5},
+                name='new_buffer')
 
+
+    inp = input("[{:} {:}] Enter 'y' to keep this sample: ".format(obs['ID'],  obs['Class']))
+    keep = inp == 'y'  
+    clear_output()
+
+    
+    if (keep):
+        if new_sample is not None:
+            sample = new_sample.geometry()
+            print("New marker accepted")
+            df['location_tweaked'].loc[index] = True
+
+            # lon, lat = Map.draw_last_feature.geometry().getInfo()['coordinates']
+            # df['Longitude'].loc[index] = lon
+            # df['Latitude'].loc[index] = lat
+            df['Longitude'].loc[index], df['Latitude'].loc[index] = Map.draw_last_feature.geometry().getInfo()['coordinates']
+
+        else:
+            print("Original marker accepted")
+
+        seeds = ee.Algorithms.Image.Segmentation.seedGrid(size_seg_px) #to get spaced grid notes at a distance specified by segmentation size parameter
+        snic = ee.Algorithms.Image.Segmentation.SNIC(
+                    image=s1_s2, #our multi-band image with selected bands 
+                    compactness=compactness, #if 0, it allows flexibility in object shape, no need to force compactness
+                    connectivity=8, #use all 8 neighboring pixels in a pixel neighborhood
+                    neighborhoodSize=256, 
+                    seeds=seeds)
+        
+        # clusters_snic = clusters_snic.reproject ({crs: clusters_snic.projection (), scale: 10});
+        
+        if display_clusters:
+            Map.addLayer(snic.randomVisualizer(), {},'SNIC Clusters')
+
+        # we dont need the cluster IDs, just the band values
+        predictionBands = snic.bandNames().remove("clusters"); 
+
+        class_int = class_dict[sample_class]
+        obia_samples = ee.FeatureCollection(ee.Feature(sample, {'class': class_int}))
+
+        DN_obia_sample = snic.select(predictionBands).sampleRegions(
+                                    collection = obia_samples,
+                                    properties = ['class'],
+                                    scale = 10).getInfo()
+        
+        DN_obia_sample = DN_obia_sample['features'][0]['properties'] #since it's a dictionary
+
+        for b, band in enumerate(OBIA_BANDS):
+            # print(b, band)
+            df[band].loc[index] = DN_obia_sample[band]
+
+        df['keep'].loc[index] = True
+
+        print("Kept Observation")
+
+    else:
+        print("Discarded Observation")
+
+    index += 1  
+    return df, index
+
+
+def get_training_sample(df, s1_s2, sample, Map, index, sampling_buffer_m=5, 
+                        size_seg_px=10, compactness=0.,display_clusters=False, 
+                        sample_class=None, obia=True):
+    if obia:
+        df, index = get_obia_values(df, s1_s2, sample, Map, index, sampling_buffer_m, 
+                                    size_seg_px, compactness,display_clusters, sample_class)
+    else:
+        df, index = get_pixel_values(df, s1_s2, sample, Map, index, sampling_buffer_m)
+    return df, index
 
