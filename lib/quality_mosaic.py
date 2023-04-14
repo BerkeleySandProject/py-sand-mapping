@@ -282,7 +282,7 @@ def get_s1s2_data(df, Map, index, sampling_buffer_m=5, max_search_window_months:
     
     lat, lon = obs['Latitude'], obs['Longitude']
 
-    print("Index: ", index, " ID: ", obs['ID'], "Class: ", obs['Class'], " Country: ", obs['Country'], " Site: ", obs['Site'])
+    print("Index: ", index, " ID: ", obs['ID'], "Class: ", obs['Class'], " Site: ", obs['Site'])
     Map.remove_drawn_features() #remove the previous markers, if any
     new_sample = None
 
