@@ -109,8 +109,9 @@ def get_s1_median(roi, DOI, start_date_str, end_date_str, median_samples=0):
         .filterDate(start_date_str, end_date_str)\
         .filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VV'))\
         .filter(ee.Filter.eq('instrumentMode', 'IW'))\
-        .filter(ee.Filter.eq('orbitProperties_pass', 'ASCENDING'))\
         .filter(ee.Filter.eq('resolution_meters', 10))
+        # .filter(ee.Filter.eq('orbitProperties_pass', 'ASCENDING'))\
+        
 
     # s1_col = s1_col.map(lambda image: image.set(
     #     'time_diff',  ee.Number(image.get('system:time_start')).subtract(DOI.millis()).abs()))
@@ -213,7 +214,7 @@ def addNDWI(image):
     return image.addBands(NDWI)
 
 
-def setup_marker_map(Map, s1_s2, lat, lon, sample, id):
+def setup_marker_map(Map, s1_s2, lat, lon, sample, id, marker=True):
     Map.centerObject(sample, 18)
     Map.add_basemap('SATELLITE')
     Map.addLayer(s1_s2, visParamsVV, 'S1', False)
