@@ -11,6 +11,8 @@ CLD_PRB_THRESH = 20
 
 USEFUL_BANDS = ["B2","B3","B4","B8","B8A","B11","B12","VV","VH","mTGSI","BSI","NDWI"]
 OBIA_BANDS = ["B2_mean","B3_mean","B4_mean","B8_mean","B8A_mean","B11_mean","B12_mean","VV_mean","VH_mean","mTGSI_mean","BSI_mean","NDWI_mean"]
+#Bands for creating the feature collection to pass to the RF -> because some geometry is required to create an FC, but the lat &lon will not be used for classification
+FC_columns = ["B2_mean","B3_mean","B4_mean","B8_mean","B8A_mean","B11_mean","B12_mean","VV_mean","VH_mean","mTGSI_mean","BSI_mean","NDWI_mean","Longitude","Latitude","class_code"]
 
 #Viz params
 visParamsRGB = {"min": 0, "max": 4000, "bands": ["B4", "B3", "B2"]}
@@ -23,6 +25,16 @@ vizParamsSNIC =  {'bands': ['B4_mean','B3_mean','B11_mean'], 'min': 0, 'max': 0.
 #create a dictonary to store mapping between string class names and numeric class values
 class_dict = {'fine': 0, 'sand': 1, 'gravel': 2, 'whitewater':3 , 'water': 4, 'bare': 5, 'greenveg': 6, 'other': 7}
 
+legend_dict = {
+    'fine': '008080', 
+    'sand': 'f3ff4a', 
+    'gravel': 'ffa500',
+    'whitewater':'ff00ff',
+    'water': '2E86C1',
+    'bare/impervious/urban': '8c411d', 
+    'greenveg': '00854d',
+    'other': '551a4d'
+}
 
 def get_s2_sr_cld_col(aoi, start_date, end_date):
     # Import and filter S2 SR.
