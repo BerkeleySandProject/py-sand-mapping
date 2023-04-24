@@ -15,7 +15,7 @@ OBIA_BANDS = ["B2_mean","B3_mean","B4_mean","B8_mean","B8A_mean","B11_mean","B12
 FC_columns = ["B2_mean","B3_mean","B4_mean","B8_mean","B8A_mean","B11_mean","B12_mean","VV_mean","VH_mean","mTGSI_mean","BSI_mean","NDWI_mean","Longitude","Latitude","class_code"]
 
 #Viz params
-visParamsRGB = {"min": 0, "max": 4000, "bands": ["B4", "B3", "B2"]}
+visParamsRGB = {"min": 0, "max": 2500, "bands": ["B4", "B3", "B2"]}
 visParamsVV  = {"min": -30, "max": 0, "bands": ["VV"]}
 visParamsFScore  = {"min": -50, "max": 0, "bands": ["FScore"]}
 green_blue_yellow_orange = ['#008080','#0039e6','#FFFF31','#f85d31']

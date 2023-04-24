@@ -14,18 +14,20 @@ keeper_columns = ['ID', 'class_code', 'B2_mean', 'B3_mean', 'B4_mean', 'B8_mean'
 
 plotting_columns = ['ID', 'Class', 'Latitude','Longitude']
 
-palette = ['008080','f3ff4a','ffa500','ff00ff', '2E86C1','8c411d','00854d','551a4d']
+palette = ['008080','f3ff4a','c71585','c0c0c0', '2E86C1','8c411d','00854d','551a4d']
 
 legend_dict = {
     'fine': '008080', 
     'sand': 'f3ff4a', 
-    'gravel': 'ffa500',
-    'whitewater':'ff00ff',
+    'gravel': 'c71585',
+    'whitewater':'c0c0c0',
     'water': '2E86C1',
     'bare': '8c411d', 
     'greenveg': '00854d',
     'other': '551a4d'
 }
+
+classy_vizParams = {"min": 0, "max": len(legend_dict)-1, "palette": palette}
 
 def train_classifier(df, type='sklearn', output_type=None, n_estimators=100, max_depth=10):
     """
