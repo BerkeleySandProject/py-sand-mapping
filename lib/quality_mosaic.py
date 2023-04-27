@@ -297,7 +297,7 @@ def get_s1s2_data(df, Map, index, sampling_buffer_m=5, max_search_window_months:
 
     print("Index: ", index, " ID: ", obs['ID'], "Class: ", obs['Class'], " Site: ", obs['Site'])
     Map.remove_drawn_features() #remove the previous markers, if any
-    new_sample = None
+
 
     point = ee.Geometry.Point([lon, lat])
     sample = point.buffer(sampling_buffer_m).bounds()
@@ -389,10 +389,6 @@ def get_obia_values(df, s1_s2, sample, Map, index, sampling_buffer_m=5,
             sample = new_sample.geometry()
             print("New marker accepted")
             df['location_tweaked'].loc[index] = True
-
-            # lon, lat = Map.draw_last_feature.geometry().getInfo()['coordinates']
-            # df['Longitude'].loc[index] = lon
-            # df['Latitude'].loc[index] = lat
             df['Longitude'].loc[index], df['Latitude'].loc[index] = Map.draw_last_feature.geometry().getInfo()['coordinates']
 
         else:
@@ -405,24 +401,33 @@ def get_obia_values(df, s1_s2, sample, Map, index, sampling_buffer_m=5,
                     connectivity=8, #use all 8 neighboring pixels in a pixel neighborhood
                     neighborhoodSize=256, 
                     seeds=seeds)
-        
-        # clusters_snic = clusters_snic.reproject ({crs: clusters_snic.projection (), scale: 10});
+        snic = snic.reproject (crs = snic.projection(), scale=10)
         
         if display_clusters:
-            Map.addLayer(snic.randomVisualizer(), {},'SNIC Clusters')
+            vizParamsSNIC = {'bands': ['B4_mean','B3_mean','B11_mean'], 'min': 0, 'max': 3000}
+            Map.addLayer(snic, vizParamsSNIC,'SNIC', False)
+            Map.addLayer(snic.randomVisualizer(), None, 'Clusters', False)
 
         # we dont need the cluster IDs, just the band values
         predictionBands = snic.bandNames().remove("clusters"); 
 
         class_int = class_dict[sample_class]
-        obia_samples = ee.FeatureCollection(ee.Feature(sample, {'class': class_int}))
 
-        DN_obia_sample = snic.select(predictionBands).sampleRegions(
-                                    collection = obia_samples,
-                                    properties = ['class'],
+        #Get the mean value of every cluster in snic:
+        # This does not work for some reason:
+        # Only some clusters get reduced, not all, esp where the sample region is
+        # cluster_means = snic.reduceConnectedComponents(
+        #             reducer= ee.Reducer.mean(),
+        #             labelBand= 'clusters')
+        # print(cluster_means.getInfo()) 
+
+        # return cluster_means, index       
+
+        DN_obia_sample = snic.select(predictionBands).reduceRegion(
+                                    geometry = sample,
+                                    reducer = ee.Reducer.mean(),
                                     scale = 10).getInfo()
         
-        DN_obia_sample = DN_obia_sample['features'][0]['properties'] #since it's a dictionary
 
         for b, band in enumerate(OBIA_BANDS):
             # print(b, band)
