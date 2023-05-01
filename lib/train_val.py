@@ -16,6 +16,11 @@ keeper_columns = ['ID', 'class_code', 'B2_mean', 'B3_mean', 'B4_mean', 'B8_mean'
        'B8A_mean', 'B11_mean', 'B12_mean', 'VV_mean', 'VH_mean', 'mTGSI_mean',
        'BSI_mean', 'NDWI_mean', 'keep','Latitude','Longitude']
 
+#add 'Date' to keeper_columns
+resample_columns = keeper_columns.copy()
+resample_columns.append('Date')
+resample_columns.append('Class')
+
 plotting_columns = ['ID', 'Class', 'Latitude','Longitude']
 
 palette = ['008080','f3ff4a','c71585','c0c0c0', '2E86C1','8c411d','00854d','551a4d']
@@ -38,7 +43,7 @@ classy_vizParams = {"min": 0, "max": len(legend_dict)-1, "palette": palette}
 
 random_state = 13
 
-def split(filename, sheets=None, test_split=0.3, type='sklearn'):
+def read_gt(filename, sheets=None, keep_columns=keeper_columns):
     df = pd.read_excel(filename, sheet_name=sheets)
     df = pd.concat(df, ignore_index=True)
 
@@ -47,7 +52,7 @@ def split(filename, sheets=None, test_split=0.3, type='sklearn'):
     #check if the column 'ID' is unique
     assert(df['ID'].is_unique)
 
-    labels = df[keeper_columns]
+    labels = df[keep_columns]
     #filter out values from labels where the keep column is False and class_code is 99
     labels = labels[(labels['keep'] == True) & (labels['class_code'] != 99) ].reset_index(drop=True)
 
@@ -60,6 +65,12 @@ def split(filename, sheets=None, test_split=0.3, type='sklearn'):
     #drop any rows that have a class_code of 0
     labels = labels[labels['class_code'] != 0].reset_index(drop=True)
 
+    return labels
+
+def split(filename, sheets=None, test_split=0.3, type='sklearn'):
+
+    labels = read_gt(filename, sheets)
+    
 
     if type == 'sklearn':
         label = 'class_code'
@@ -324,7 +335,7 @@ def sg_accuracy(mat:np.array):
     """
     calculates accuracy from a confusion matrix
     """
-    return np.sum(np.diagonal(mat[0:1]))/np.sum(mat[0:1])
+    return np.sum(np.diagonal(mat[0:2]))/np.sum(mat[0:2])
 
 def sklearn_metrics_table(mat:np.array, class_labels = None):
     """
@@ -404,7 +415,7 @@ def display_cm(cm, class_labels=class_labels):
 
     
 def apply_snic(image, roi=None, size_segmentation=10, compactness = 0,  connectivity = 8, neighborhoodSize = 256, Map=None):
-    # Segmentation using a SNIC approach based on the dataset previosly generated
+    # Segmentation using a SNIC approach with superpixels.
     seeds = ee.Algorithms.Image.Segmentation.seedGrid(size_segmentation); #to get spaced grid notes at a distance specified by segmentation size parameter
     
     if roi is not None:
@@ -417,6 +428,8 @@ def apply_snic(image, roi=None, size_segmentation=10, compactness = 0,  connecti
                                 neighborhoodSize = neighborhoodSize,
                                 seeds = seeds #use the seeds we generated above
                                 )
+    # snic = snic.reproject (crs = snic.projection(), scale=10)
+
     if Map is not None:                           
         vizParamsSNIC = {'bands': ['B4_mean','B3_mean','B11_mean'], 'min': 0, 'max': 3000}
         Map.addLayer(snic, vizParamsSNIC,'SNIC', True)

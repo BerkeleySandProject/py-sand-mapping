@@ -282,12 +282,16 @@ def setup_output_bands(output, obia=True):
 
 
 
-def get_s1s2_data(df, Map, index, sampling_buffer_m=5, max_search_window_months:int=6, median_samples:int=6, display_smap=True, mosaic_method='qm', roi_buffer_m=200, obia=True):
+def get_s1s2_data(df, Map, index, sampling_buffer_m=5, max_search_window_months:int=6, 
+                  median_samples:int=6, display_smap=True, mosaic_method='qm', roi_buffer_m=200, 
+                  obia=True, interactive = True):
     """
     Auto incrementing function
     """
     keep = False
-    clear_output()
+
+    if interactive:
+        clear_output()
 
     df = setup_output_bands(df, obia=obia)
 
@@ -295,8 +299,9 @@ def get_s1s2_data(df, Map, index, sampling_buffer_m=5, max_search_window_months:
     
     lat, lon = obs['Latitude'], obs['Longitude']
 
-    print("Index: ", index, " ID: ", obs['ID'], "Class: ", obs['Class'], " Site: ", obs['Site'])
-    Map.remove_drawn_features() #remove the previous markers, if any
+    if Map is not None:
+        print("Index: ", index, " ID: ", obs['ID'], "Class: ", obs['Class'], " Site: ", obs['Site'])
+        Map.remove_drawn_features() #remove the previous markers, if any
 
 
     point = ee.Geometry.Point([lon, lat])
@@ -306,7 +311,9 @@ def get_s1s2_data(df, Map, index, sampling_buffer_m=5, max_search_window_months:
     date = obs['Date']
     
     s1_s2 = get_s1_s2(roi=roi, date=date, max_search_window_months=max_search_window_months,median_samples=median_samples, mosaic_method=mosaic_method)
-    setup_marker_map(Map, s1_s2, lat, lon, sample, obs['ID'])
+    
+    if Map is not None:
+        setup_marker_map(Map, s1_s2, lat, lon, sample, obs['ID'])
 
     if display_smap:
         SMap = setup_split_map(s1_s2, lat, lon, sample)
@@ -363,35 +370,43 @@ def get_pixel_values(df, s1_s2, sample, Map, index, sampling_buffer_m=5):
 
 
 def get_obia_values(df, s1_s2, sample, Map, index, sampling_buffer_m=5, 
-                    size_seg_px=10, compactness=0.,display_clusters=False, sample_class=None):
+                    size_seg_px=10, compactness=0.,display_clusters=False, sample_class=None,
+                    interactive=True):
+    """
+    interactive: True if user is manually adjusting labels, index will auto increment
+                : False is it's happenning programmatically, index will not auto increment
+    
+    """
     # global INDEX, sampling_buffer_m
     obs = df.loc[index]
+    keep = False
 
     if sample_class is None: # user has not overridden class variable
         sample_class = obs['Class']
 
     new_sample = None
-    if (Map.draw_last_feature is not None):
-        
-        new_sample = Map.draw_last_feature.buffer(sampling_buffer_m).bounds()
-        Map.addLayer(new_sample,
-                {'color':'green', 'opacity':0.5},
-                name='new_buffer')
+    if Map is not None or interactive:
+        if (Map.draw_last_feature is not None):
+            
+            new_sample = Map.draw_last_feature.buffer(sampling_buffer_m).bounds()
+            Map.addLayer(new_sample,
+                    {'color':'green', 'opacity':0.5},
+                    name='new_buffer')
 
-
-    inp = input("[{:} {:}] Enter 'y' to keep this sample: ".format(obs['ID'],  obs['Class']))
-    keep = inp == 'y'  
-    clear_output()
+    if interactive:
+        inp = input("[{:} {:}] Enter 'y' to keep this sample: ".format(obs['ID'],  obs['Class']))
+        keep = inp == 'y'  
+        clear_output()
 
     
-    if (keep):
+    if keep or not interactive: #if user wants to keep it, or it's running in non-interactive mode
         if new_sample is not None:
             sample = new_sample.geometry()
             print("New marker accepted")
             df['location_tweaked'].loc[index] = True
             df['Longitude'].loc[index], df['Latitude'].loc[index] = Map.draw_last_feature.geometry().getInfo()['coordinates']
 
-        else:
+        elif interactive:
             print("Original marker accepted")
 
         seeds = ee.Algorithms.Image.Segmentation.seedGrid(size_seg_px) #to get spaced grid notes at a distance specified by segmentation size parameter
@@ -403,7 +418,7 @@ def get_obia_values(df, s1_s2, sample, Map, index, sampling_buffer_m=5,
                     seeds=seeds)
         snic = snic.reproject (crs = snic.projection(), scale=10)
         
-        if display_clusters:
+        if display_clusters and Map is not None:
             vizParamsSNIC = {'bands': ['B4_mean','B3_mean','B11_mean'], 'min': 0, 'max': 3000}
             Map.addLayer(snic, vizParamsSNIC,'SNIC', False)
             Map.addLayer(snic.randomVisualizer(), None, 'Clusters', False)
@@ -436,21 +451,23 @@ def get_obia_values(df, s1_s2, sample, Map, index, sampling_buffer_m=5,
         df['keep'].loc[index] = True
         df['class_code'].loc[index] = class_int
 
-        print("Kept Observation")
+        if interactive:
+            print("Kept Observation")
 
     else:
         print("Discarded Observation")
 
-    index += 1  
+    if not interactive:
+        index += 1  
     return df, index
 
 
 def get_training_sample(df, s1_s2, sample, Map, index, sampling_buffer_m=5, 
                         size_seg_px=10, compactness=0.,display_clusters=False, 
-                        sample_class=None, obia=True):
+                        sample_class=None, obia=True, interactive=True):
     if obia:
         df, index = get_obia_values(df, s1_s2, sample, Map, index, sampling_buffer_m, 
-                                    size_seg_px, compactness,display_clusters, sample_class)
+                                    size_seg_px, compactness,display_clusters, sample_class, interactive)
     else:
         df, index = get_pixel_values(df, s1_s2, sample, Map, index, sampling_buffer_m)
     return df, index
