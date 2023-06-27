@@ -12,9 +12,7 @@ from sklearn.metrics import ConfusionMatrixDisplay
 import matplotlib.pyplot as plt
 
 
-keeper_columns = ['ID', 'class_code', 'B2_mean', 'B3_mean', 'B4_mean', 'B8_mean',
-       'B8A_mean', 'B11_mean', 'B12_mean', 'VV_mean', 'VH_mean', 'mTGSI_mean',
-       'BSI_mean', 'NDWI_mean', 'keep','Latitude','Longitude']
+keeper_columns = [*qm.FC_columns, 'ID', 'keep']
 
 #add 'Date' to keeper_columns
 resample_columns = keeper_columns.copy()
