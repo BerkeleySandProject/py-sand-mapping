@@ -22,6 +22,7 @@ resample_columns.append('Class')
 plotting_columns = ['ID', 'Class', 'Latitude','Longitude']
 
 palette = ['008080','f3ff4a','c71585','c0c0c0', '2E86C1','8c411d','00854d','551a4d']
+palette_remap = ['f3ff4a','c71585','00854d']
 
 class_labels = ['sand', 'gravel','whitewater','water','greenveg', 'bare', 'cobble']
 remapped_class_labels = ['sand', 'gravel','other']
@@ -37,8 +38,15 @@ legend_dict = {
     'cobble': '551a4d'
 }
 
+legend_dict_remap = {
+    'sand': 'f3ff4a', 
+    'gravel': 'c71585',
+    'other': '00854d'
+}
+
 
 classy_vizParams = {"min": 0, "max": len(legend_dict)-1, "palette": palette}
+classy_vizParams_remap = {"min": 1, "max": 3, "palette": palette_remap}
 
 random_state = 13
 
@@ -51,15 +59,16 @@ def read_gt(filename, sheets=None, keep_columns=keeper_columns):
     #check if the column 'ID' is unique
     assert(df['ID'].is_unique)
 
-    labels = df[keep_columns]
+    labels = df#[keep_columns]
     #filter out values from labels where the keep column is False and class_code is 99
     labels = labels[(labels['keep'] == True) & (labels['class_code'] != 99) ].reset_index(drop=True)
 
+    print (labels)
     #check if there are any null values
-    labels.isnull().sum()
+    # labels.isnull().sum()
 
     #make sure that there are no nans anywhere
-    assert(labels.isnull().sum().sum() == 0)
+    # assert(labels.isnull().sum().sum() == 0)
 
     #drop any rows that have a class_code of 0
     labels = labels[labels['class_code'] != 0].reset_index(drop=True)
@@ -295,7 +304,7 @@ def recall(mat:np.array):
     """
     return np.nan_to_num(np.diagonal(mat)/np.sum(mat, axis = 1))
 
-def f1_score(mat:np.array):
+def f1_score2(mat:np.array):
     """
     calculates f1-score (class-wise) from a confusion matrix
     """
@@ -342,7 +351,7 @@ def sklearn_metrics_table(mat:np.array, class_labels = None):
     Also has accuracy, and macro-averaged precision/ recall/ f1-score
     """
     
-    panela = np.stack([precision(mat), recall(mat), f1_score(mat), np.sum(mat, axis = 1)], axis = 1)
+    panela = np.stack([precision(mat), recall(mat), metrics.f1_score(mat), np.sum(mat, axis = 1)], axis = 1)
     panelb = np.stack([[np.nan,np.nan  , accuracy(mat), np.sum(mat)], 
                        [macro_precision(mat), macro_recall(mat), macro_f1score(mat), np.sum(mat)]])
 
@@ -365,12 +374,18 @@ def metrics_table(mat:np.array, class_labels:list):
     """
     Returns a dataframe with class-wise precision, recall and f1-score for a given confusion matrix
     """
-    panela = np.stack([class_labels, precision(mat), recall(mat), f1_score(mat) , np.sum(mat, axis = 1)], axis= 1)
+    panela = np.stack([class_labels, precision(mat), recall(mat), f1_score2(mat) , np.sum(mat, axis = 1)], axis= 1)
     panela = pd.DataFrame(panela)
     panela.columns = ['class', 'precision', 'recall', 'f1-score', 'support']
     panela = panela.round(decimals=2)
     print(panela.to_markdown(index=False))
     return panela
+
+def remap_pd_classes(df, in_fields=[0,1,2,3,4,5,6,7], out_fields=[3,1,2,3,3,3,3,3]):
+    #remap all values in the pandas dataframe that exist as values in in_fields to the corresponding value in out_fields
+    return df.apply(lambda x: out_fields[in_fields.index(x)])
+    # return np.array([out_fields[in_fields.index(i)] for i in dataset])
+
 
 def remap_y(y_true, y_pred, in_fields=[0,1,2,3,4,5,6,7], out_fields=[3,1,2,3,3,3,3,3]):
     #remap all values in y_true and y_pred that exist as values in in_fields to the corresponding value in out_fields
@@ -380,14 +395,23 @@ def remap_y(y_true, y_pred, in_fields=[0,1,2,3,4,5,6,7], out_fields=[3,1,2,3,3,3
 
 def remapped_f1_score(y_true, y_pred):
     y_true_remapped, y_pred_remapped = remap_y(y_true, y_pred)
-    f1 = metrics.f1_score(y_true_remapped, y_pred_remapped, average=None) #return the score for each class
-    remapped_f1 = f1[0:2].mean() #So we take the average of only sand & gravel's F1 scores
-    return remapped_f1
+    # f1 = metrics.f1_score(y_true_remapped, y_pred_remapped, average=None) #return the score for each class
+    # remapped_f1 = f1[0:2].mean() #So we take the average of only sand & gravel's F1 scores
+    # return remapped_f1
+    return metrics.f1_score(y_true_remapped, y_pred_remapped, labels=[1,2], average='weighted', zero_division=np.nan) #return the score for each class
+
+
+def f1_score(y_true, y_pred):
+    # take the weighted average of the F1 scores for sand and gravel classes only
+    return metrics.f1_score(y_true, y_pred, labels=[1,2], average='weighted', zero_division=np.nan) #return the score for each class
+
 
 def remapped_accuracy_score(y_true, y_pred):
     y_true_remapped, y_pred_remapped = remap_y(y_true, y_pred)
     return metrics.accuracy_score(y_true_remapped, y_pred_remapped)
 
+def accuracy_score(y_true, y_pred):
+    return metrics.accuracy_score(y_true, y_pred)
 
 
 def remap_cm(y_true, y_pred, in_fields=[0,1,2,3,4,5,6,7], out_fields=[3,1,2,3,3,3,3,3]):  #[2,0,1,2,2,2,2,2]
@@ -425,8 +449,6 @@ def display_cm(cm, class_labels=class_labels):
 
     plt.show()
 
-
-    
 def apply_snic(image, roi=None, size_segmentation=10, compactness = 0,  connectivity = 8, neighborhoodSize = 256, Map=None):
     # Segmentation using a SNIC approach with superpixels.
     seeds = ee.Algorithms.Image.Segmentation.seedGrid(size_segmentation); #to get spaced grid notes at a distance specified by segmentation size parameter
@@ -453,3 +475,49 @@ def apply_snic(image, roi=None, size_segmentation=10, compactness = 0,  connecti
     #since we don't need to use pixel values of their cluster IDs as a basis for class mapping:
     predictionBands = snic.bandNames().remove("clusters")
     return snic.select(predictionBands)
+    
+def apply_snic_obia(image, roi=None, size_segmentation=10, compactness = 0,  connectivity = 8, neighborhoodSize = 256, Map=None, median_bands=False):
+    # Segmentation using a SNIC approach with superpixels.
+    seeds = ee.Algorithms.Image.Segmentation.seedGrid(size_segmentation); #to get spaced grid notes at a distance specified by segmentation size parameter
+    
+    if roi is not None:
+        image = image.clip(roi)
+    
+    snic = ee.Algorithms.Image.Segmentation.SNIC(
+                                image = image, #our multi-band image with selected bands same as for pixel-based
+                                compactness = compactness,  #allow flexibility in object shape, no need to force compactness
+                                connectivity = connectivity, #use all 8 neighboring pixels in a pixel neighborhood
+                                neighborhoodSize = neighborhoodSize,
+                                seeds = seeds #use the seeds we generated above
+                                )
+    # snic = snic.reproject (crs = snic.projection(), scale=10)
+
+    if Map is not None:                           
+        vizParamsSNIC = {'bands': ['B4_mean','B3_mean','B11_mean'], 'min': 0, 'max': 3000}
+        Map.addLayer(snic, vizParamsSNIC,'SNIC', True)
+        #To visualize snic result:
+        Map.addLayer(snic.randomVisualizer(), None, 'Clusters', True)
+
+    if not median_bands:
+        predictionBands = snic.bandNames().remove("clusters")
+        snic = snic.select(predictionBands)
+        # replace the band names of snic that have "_mean" with "_median"
+        snic = snic.rename(qm.OBIA_BANDS)
+        # snic = snic.rename(snic.bandNames().map(lambda b: ee.String(b).cat('_median')))
+
+        print(snic.bandNames().getInfo())
+
+        return snic.select(qm.OBIA_BANDS)
+    else:
+
+        image_with_clusters = image.addBands(snic.select('clusters'))
+
+        cluster_medians = image_with_clusters.reduceConnectedComponents(
+                        reducer=ee.Reducer.median(),
+                        labelBand='clusters')
+        cluster_medians = cluster_medians.reproject(crs=cluster_medians.projection(), scale=10)
+        #add a "_median" to each of the band names of cluster_medians
+        cluster_medians = cluster_medians.rename(cluster_medians.bandNames().map(lambda b: ee.String(b).cat('_median')))
+        print(cluster_medians.bandNames().getInfo())
+        
+        return cluster_medians.select(qm.OBIA_BANDS)
