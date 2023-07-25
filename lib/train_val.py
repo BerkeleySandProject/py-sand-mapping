@@ -8,8 +8,8 @@ from geemap import ml
 from sklearn import ensemble
 import quality_mosaic as qm
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import ConfusionMatrixDisplay
 import matplotlib.pyplot as plt
+import sklearn.metrics as metrics
 
 
 keeper_columns = [*qm.FC_columns, 'ID', 'keep']
@@ -24,6 +24,7 @@ plotting_columns = ['ID', 'Class', 'Latitude','Longitude']
 palette = ['008080','f3ff4a','c71585','c0c0c0', '2E86C1','8c411d','00854d','551a4d']
 
 class_labels = ['sand', 'gravel','whitewater','water','greenveg', 'bare', 'cobble']
+remapped_class_labels = ['sand', 'gravel','other']
 
 legend_dict = {
     'fine': '008080', 
@@ -307,21 +308,21 @@ def macro_precision(mat:np.array):
     calculates macro-averaged precision from a confusion matrix
     """
     assert mat.shape[0] > 2
-    return np.mean(precision(mat))
+    return np.mean(metrics.precision(mat))
 
 def macro_recall(mat:np.array):
     """
     calculates macro-averaged recall from a confusion matrix
     """
     assert mat.shape[0] > 2
-    return np.mean(recall(mat))
+    return np.mean(metrics.recall(mat))
 
 def macro_f1score(mat:np.array):
     """
     calculates macro-averaged F1 score from a confusion matrix
     """
     assert mat.shape[0] > 2
-    return np.mean(f1_score(mat))
+    return np.mean(metrics.f1_score(mat))
 
 def overall_accuracy(mat:np.array):
     """
@@ -370,23 +371,37 @@ def metrics_table(mat:np.array, class_labels:list):
     panela = panela.round(decimals=2)
     print(panela.to_markdown(index=False))
     return panela
-    
-def remap_cm(cm, remapped_class_labels = ['sand', 'gravel','other']):
-    #make a copy of cm
-    remapped_cm = cm.copy()
 
-    #Let's do the rows first
-    for i in range(0, 2):
-        remapped_cm[i,2] = np.sum(cm[i,2:])
-    #columns
-    for j in range(0, 2):
-        remapped_cm[2,j] = np.sum(cm[2:, j])
+def remap_y(y_true, y_pred, in_fields=[0,1,2,3,4,5,6,7], out_fields=[3,1,2,3,3,3,3,3]):
+    #remap all values in y_true and y_pred that exist as values in in_fields to the corresponding value in out_fields
+    y_true_remap = np.array([out_fields[in_fields.index(i)] for i in y_true])
+    y_pred_remap = np.array([out_fields[in_fields.index(i)] for i in y_pred])
+    return y_true_remap, y_pred_remap
 
-    #diagonal
-    remapped_cm[2,2] = np.sum(np.diag(cm[2:,2:]))
+def remapped_f1_score(y_true, y_pred):
+    y_true_remapped, y_pred_remapped = remap_y(y_true, y_pred)
+    f1 = metrics.f1_score(y_true_remapped, y_pred_remapped, average=None) #return the score for each class
+    remapped_f1 = f1[0:2].mean() #So we take the average of only sand & gravel's F1 scores
+    return remapped_f1
 
-    #keep only the first 3 rows and columns
-    remapped_cm = remapped_cm[0:3, 0:3]
+def remapped_accuracy_score(y_true, y_pred):
+    y_true_remapped, y_pred_remapped = remap_y(y_true, y_pred)
+    return metrics.accuracy_score(y_true_remapped, y_pred_remapped)
+
+
+
+def remap_cm(y_true, y_pred, in_fields=[0,1,2,3,4,5,6,7], out_fields=[3,1,2,3,3,3,3,3]):  #[2,0,1,2,2,2,2,2]
+    remapped_class_labels = ['sand', 'gravel', 'other']
+
+    # unremapped_cm = metrics.confusion_matrix(y_true, y_pred)
+    # print(sum(sum(unremapped_cm)))
+
+    y_true_remapped, y_pred_remapped = remap_y(y_true, y_pred, in_fields, out_fields)
+    remapped_cm = metrics.confusion_matrix(y_true_remapped, y_pred_remapped)
+
+    #sanity check
+    # assert(sum(sum(unremapped_cm))) == sum((remapped_cm)))
+
     display(pd.DataFrame(remapped_cm))
     display(round(metrics_table(remapped_cm, remapped_class_labels)))
 
@@ -396,7 +411,7 @@ def remap_cm(cm, remapped_class_labels = ['sand', 'gravel','other']):
 def display_cm(cm, class_labels=class_labels):
 
 
-    disp = ConfusionMatrixDisplay(confusion_matrix=cm,)
+    disp = metrics.ConfusionMatrixDisplay(confusion_matrix=cm)
     disp.plot()
     #remove all grid lines
     plt.grid(False)
