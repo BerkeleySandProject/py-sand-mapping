@@ -396,6 +396,7 @@ def get_obia_values(df, s1_s2, sample_point, Map, index,
 
         elif interactive:
             print("Original marker accepted")
+            df['location_tweaked'].loc[index] = False
 
         # We reduce the image to a 200m radius around the sampled point.
         # This makes the remaining computations cheaper.
@@ -440,6 +441,8 @@ def get_obia_values(df, s1_s2, sample_point, Map, index,
             print("Kept Observation")
 
     else:
+        df['keep'].loc[index] = False
+        df['class_code'].loc[index] = 99
         print("Discarded Observation")
 
     if not interactive:
