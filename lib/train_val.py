@@ -15,9 +15,13 @@ import sklearn.metrics as metrics
 keeper_columns = [*qm.FC_columns, 'ID', 'keep']
 
 #add 'Date' to keeper_columns
-resample_columns = keeper_columns.copy()
-resample_columns.append('Date')
-resample_columns.append('Class')
+# resample_columns = keeper_columns.copy()
+# resample_columns.append(qm.DW_BANDS)
+# resample_columns.append('Date')
+# resample_columns.append('Class')
+
+resample_columns = ['Longitude', 'Latitude', 'class_code', 'ID', 'keep', 'Date', 'Class']
+
 
 plotting_columns = ['ID', 'Class', 'Latitude','Longitude']
 
@@ -50,7 +54,7 @@ classy_vizParams_remap = {"min": 1, "max": 3, "palette": palette_remap}
 
 random_state = 13
 
-def read_gt(filename, sheets=None, keep_columns=keeper_columns):
+def read_gt(filename, sheets=None, keep_columns=keeper_columns, zero_out=False):
     df = pd.read_excel(filename, sheet_name=sheets)
     df = pd.concat(df, ignore_index=True)
 
@@ -59,18 +63,20 @@ def read_gt(filename, sheets=None, keep_columns=keeper_columns):
     #check if the column 'ID' is unique
     assert(df['ID'].is_unique)
 
-    labels = df#[keep_columns]
+    labels = df[keep_columns]
     #filter out values from labels where the keep column is False and class_code is 99
     labels = labels[(labels['keep'] == True) & (labels['class_code'] != 99) ].reset_index(drop=True)
 
-    print (labels)
-    #check if there are any null values
-    # labels.isnull().sum()
+    #Now add all the bands columns to df
+    if zero_out:
+        for band in qm.OBIA_BANDS:
+            labels[band] = None
+
 
     #make sure that there are no nans anywhere
     # assert(labels.isnull().sum().sum() == 0)
 
-    #drop any rows that have a class_code of 0
+    #drop any rows that have a class_code of 0 -> remove 'fine' class
     labels = labels[labels['class_code'] != 0].reset_index(drop=True)
 
     return labels
@@ -88,7 +94,7 @@ def split(filename, sheets=None, test_split=0.3, type='sklearn'):
         X = labels[qm.FC_columns] #df[features]
         y = labels[label]
 
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_split, random_state=random_state)
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_split, random_state=random_state, stratify=y)
         #drop columns Latitude, Longitude and class_code from X_train
         # X_train = X_train.drop(['Latitude', 'Longitude', 'class_code'], axis=1)
         #Lets keep those columns in X_test
@@ -393,17 +399,23 @@ def remap_y(y_true, y_pred, in_fields=[0,1,2,3,4,5,6,7], out_fields=[3,1,2,3,3,3
     y_pred_remap = np.array([out_fields[in_fields.index(i)] for i in y_pred])
     return y_true_remap, y_pred_remap
 
-def remapped_f1_score(y_true, y_pred):
+def remapped_f1_score(y_true, y_pred, sg_only=True):
     y_true_remapped, y_pred_remapped = remap_y(y_true, y_pred)
     # f1 = metrics.f1_score(y_true_remapped, y_pred_remapped, average=None) #return the score for each class
     # remapped_f1 = f1[0:2].mean() #So we take the average of only sand & gravel's F1 scores
     # return remapped_f1
-    return metrics.f1_score(y_true_remapped, y_pred_remapped, labels=[1,2], average='weighted', zero_division=np.nan) #return the score for each class
+    if not sg_only:
+        return metrics.f1_score(y_true_remapped, y_pred_remapped, average='weighted', zero_division=np.nan) #return the score for each class
+    else:
+        return metrics.f1_score(y_true_remapped, y_pred_remapped, labels=[1,2], average='weighted', zero_division=np.nan) #return the score for each class
 
 
-def f1_score(y_true, y_pred):
+def f1_score(y_true, y_pred, sg_only=True):
     # take the weighted average of the F1 scores for sand and gravel classes only
-    return metrics.f1_score(y_true, y_pred, labels=[1,2], average='weighted', zero_division=np.nan) #return the score for each class
+    if not sg_only:
+        return metrics.f1_score(y_true, y_pred, average='weighted', zero_division=np.nan) #return the score for each class
+    else:
+        return metrics.f1_score(y_true, y_pred, labels=[1,2], average='weighted', zero_division=np.nan) #return the score for each class
 
 
 def remapped_accuracy_score(y_true, y_pred):

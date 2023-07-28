@@ -10,7 +10,16 @@ CLOUD_FILTER = 10
 CLD_PRB_THRESH = 20
 
 USEFUL_BANDS = ["B2","B3","B4","B8","B8A","B11","B12","VV","VH","mTGSI","BSI","NDWI"]
+
+
+DW_BANDS = ['water', 'trees', 'grass', 'flooded_vegetation', 'crops', 'shrub_and_scrub', 'built', 'bare', 'snow_and_ice']
+USEFUL_BANDS.extend(DW_BANDS)
+
 OBIA_BANDS = [f"{band}_median" for band in USEFUL_BANDS]
+
+
+
+
 #Bands for creating the feature collection to pass to the RF -> because some geometry is required to create an FC, but the lat &lon will not be used for classification
 FC_columns = [*OBIA_BANDS, "Longitude","Latitude","class_code"]
 
@@ -113,8 +122,25 @@ def wrap_addFScore(feature_collection, DOI):
     return feature_collection.map(lambda feat: do_buffer(feat))
 
 
+def get_DOI(date:str, max_search_window_months:int):
+    DOI = ee.Date(date)
+    start_date, end_date = DOI.advance(-max_search_window_months, 'month'), DOI.advance(max_search_window_months, 'month')
+    start_date_str, end_date_str = start_date.format('YYYY-MM-dd').getInfo(), end_date.format('YYYY-MM-dd').getInfo()
+    print("Search window from {:} to {:}".format(start_date_str, end_date_str))
+    return DOI, start_date_str, end_date_str
+
+
 ## S1 Image
 def get_s1_median(roi, DOI, start_date_str, end_date_str, median_samples=0):
+    """
+    Returns the S1 median image for the set of dates and roi provided
+
+    roi: ee.Geometry type polygon or point
+    DOI: ee.Date type, e.g. ee.Date('2019-01-01')
+    start_date_str: string 'YYYY-MM-DD', e.g. '2019-01-01'
+    end_date_str: string 'YYYY-MM-DD', e.g. '2019-01-01'
+    median_samples: int, number of days to median filtered images
+    """
     s1_col = ee.ImageCollection('COPERNICUS/S1_GRD')\
         .filterBounds(roi)\
         .filterDate(start_date_str, end_date_str)\
@@ -124,10 +150,13 @@ def get_s1_median(roi, DOI, start_date_str, end_date_str, median_samples=0):
         # .filter(ee.Filter.eq('orbitProperties_pass', 'ASCENDING'))\
         
 
-    # s1_col = s1_col.map(lambda image: image.set(
-    #     'time_diff',  ee.Number(image.get('system:time_start')).subtract(DOI.millis()).abs()))
+    # Add another field that captures the time difference between the image and the DOI
     s1_col = s1_col.map(lambda img: img.set('time_diff', img.date().difference(DOI, 'day').abs()))
 
+    if s1_col.size().getInfo() == 0:
+        return None
+
+    #Sort according to time difference of images to DOI, and select the median for the top median_samples images
     s1_col = s1_col.sort('time_diff')
     if median_samples > 0:
         s1_col = s1_col.limit(median_samples)
@@ -135,14 +164,39 @@ def get_s1_median(roi, DOI, start_date_str, end_date_str, median_samples=0):
 
     return s1
 
-def get_DOI(date:str, max_search_window_months:int):
-    DOI = ee.Date(date)
-    start_date, end_date = DOI.advance(-max_search_window_months, 'month'), DOI.advance(max_search_window_months, 'month')
-    start_date_str, end_date_str = start_date.format('YYYY-MM-dd').getInfo(), end_date.format('YYYY-MM-dd').getInfo()
-    print("Search window from {:} to {:}".format(start_date_str, end_date_str))
-    return DOI, start_date_str, end_date_str
+def get_dw(roi, DOI, start_date_str, end_date_str, median_samples=0):
+    """
+    Returns the Dynamic World Layer (only probabilities for each of the 9 classes)
+    roi: ee.Geometry type polygon or point
+    DOI: ee.Date type, e.g. ee.Date('2019-01-01')
+    start_date_str: string 'YYYY-MM-DD', e.g. '2019-01-01'
+    end_date_str: string 'YYYY-MM-DD', e.g. '2019-01-01'
+    median_samples: int, number of days to median filtered images
 
-def get_s1_s2(roi, date, max_search_window_months:int=6, median_samples:int=6,mosaic_method='qm', clip=True):
+    """
+    dw_col = ee.ImageCollection('GOOGLE/DYNAMICWORLD/V1')\
+                .filterBounds(roi)\
+                .filterDate(start_date_str, end_date_str)
+
+    # Add another field that captures the time difference between the image and the DOI
+    dw_col = dw_col.map(lambda img: img.set('time_diff', img.date().difference(DOI, 'day').abs()))
+
+    if dw_col.size().getInfo() == 0:
+        return None
+
+    #Sort according to time difference of images to DOI, and select the median for the top median_samples images
+    dw_col = dw_col.sort('time_diff')
+    if median_samples > 0:
+        dw_col = dw_col.limit(median_samples)
+
+    dw = dw_col.median()
+
+    #Drop the band called 'label'
+    dw = dw.select(dw.bandNames().remove('label'))
+    return dw
+
+
+def get_s1_s2(roi, date, max_search_window_months:int=6, median_samples:int=6,mosaic_method='qm', clip=True, dw=True):
     """
     roi: ee.Geometry type polygon or point
     date: string 'YYYY-MM-DD', e.g. '2019-01-01'
@@ -152,12 +206,16 @@ def get_s1_s2(roi, date, max_search_window_months:int=6, median_samples:int=6,mo
         if 'qm', quality mosaic will be used to mosaic S2 images, and max_search_window_months is used
         if 'median', median will be used to mosaic S2 images, and median_samples is used
 
+    dw: bool, if True, Dynamic World layer will be added to the output
     return:
     s1: ee.Image type
     """
     DOI, start_date_str, end_date_str = get_DOI(date, max_search_window_months)
 
     s2_cld_col = get_s2_sr_cld_col(roi, start_date_str, end_date_str)
+
+    if s2_cld_col.size().getInfo() == 0:
+        return None
 
     if (mosaic_method == 'qm'):
         witFScore = wrap_addFScore(s2_cld_col, DOI)
@@ -172,17 +230,28 @@ def get_s1_s2(roi, date, max_search_window_months:int=6, median_samples:int=6,mo
     
     s1 = get_s1_median(roi, DOI, start_date_str, end_date_str, median_samples)
 
+    if s1 is None:
+        return None
+
     #combine s1 and s2
     s1_s2 = qm_s2.addBands(s1)
 
     #Add VI Bands
     s1_s2 = addNDWI(addBSI(add_mTGSI(s1_s2)))
 
-    #subset only useful bands
-    s1_s2 = s1_s2.select(USEFUL_BANDS)
+    #Add Dynamic World Layers
+    if dw:
+        dw = get_dw(roi, DOI, start_date_str, end_date_str, median_samples)
+        s1_s2 = s1_s2.addBands(dw)
+
+        if dw is None:
+            return None
 
     if clip:
         s1_s2 = s1_s2.clip(roi)
+
+    #subset only useful bands
+    s1_s2 = s1_s2.select(USEFUL_BANDS)
 
     return s1_s2
 
@@ -301,6 +370,7 @@ def get_s1s2_data(df, Map, index, max_search_window_months:int=6,
     
     s1_s2 = get_s1_s2(roi=roi, date=date, max_search_window_months=max_search_window_months,median_samples=median_samples, mosaic_method=mosaic_method)
     
+
     if Map is not None:
         setup_marker_map(Map, s1_s2, lat, lon, obs['ID'])
 
@@ -431,7 +501,7 @@ def get_obia_values(df, s1_s2, sample_point, Map, index,
         DN_obia_sample_dict = DN_obia_sample.toDictionary().getInfo()
         
         for band in USEFUL_BANDS:
-            print(band, DN_obia_sample_dict[band])
+            # print(band, DN_obia_sample_dict[band])
             df[f"{band}_median"].loc[index] = DN_obia_sample_dict[band]
 
         df['keep'].loc[index] = True
