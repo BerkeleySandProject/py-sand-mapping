@@ -17,3 +17,6 @@ This dataset can be found in a [Google Sheet here](https://docs.google.com/sprea
 
 
 ## Entry points
+
+### A. Vizualizer
+If you would like to simply use the best trained random forest (RF) model to visualize any region on the planet, within Google Earth Engine (GEE), which is open access and requires no additional computation, except having a GEE account, you can use this publicly available [GEE file](https://code.earthengine.google.com/8b4654efc7866d1724c4fac35ab96d04) to run those inference steps. Simply hit "Run" on the command bar on top. Beware that at lower zoom levels (more area shown), you may encounter errors, and will have to zoom in to reduce the computer burden.
