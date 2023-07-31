@@ -12,8 +12,9 @@ This dataset can be found in a [Google Sheet here](https://docs.google.com/sprea
   
 2. The positions from the dataset are fine-tuned, along with a timestamp (if the SGR desposits are not available on the original date), and a set of spectral bands are  grabbed, object based image analysis (OBIA) is conducted and the median value of those bands are stored. These are available in `data/labels`
 
-  1. The base dataset is: `gt-bands.xlsx`, which contains all S-1 and S-2 median band values for the cluster identified using SNIC for each sample
-  2. Other modfied dataset that could be of use are `gt-bands-resampled-s10-dw.xlsx` that also has the [Dynamic World](https://developers.google.com/earth-engine/datasets/catalog/GOOGLE_DYNAMICWORLD_V1) (DW) class probability layers as bands. Other variations include `gt-bands-resampled-s15-dw.xlsx` or `gt-bands-resampled-s15.xlsx` which are resampled versions of the base dataset with different superpixel parameters for the SNIC algorithm, with or without the DW bands.
+    a. The base dataset is: `gt-bands.xlsx`, which contains all S-1 and S-2 median band values for the cluster identified using SNIC for each sample
+   
+    b. The other modfied dataset that could be of use are `gt-bands-resampled-s10-dw.xlsx` that also has the [Dynamic World](https://developers.google.com/earth-engine/datasets/catalog/GOOGLE_DYNAMICWORLD_V1) (DW) class probability layers as bands. Other variations include `gt-bands-resampled-s15-dw.xlsx` or `gt-bands-resampled-s15.xlsx` which are resampled versions of the base dataset with different superpixel parameters for the SNIC algorithm, with or without the DW bands.
 
 
 ## Entry points
